@@ -58,13 +58,20 @@ const (
 	moreThan
 )
 
+type fsStatFunc func(name string) (fs.FileInfo, error)
+
 type timeFilter struct {
 	threshold  time.Time
 	filterType timeFilterType
+	statFunc   fsStatFunc
+}
+
+func newTimeFilter(threshold time.Time, filterType timeFilterType) *timeFilter {
+	return &timeFilter{threshold: threshold, filterType: filterType, statFunc: os.Stat}
 }
 
 func (t *timeFilter) Accept(path string) bool {
-	info, err := os.Stat(path)
+	info, err := t.statFunc(path)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Cannot stat file", err)
 		return false
@@ -83,11 +90,9 @@ func (t *timeFilter) Accept(path string) bool {
 
 func parseMmin(mmin string, now time.Time) (*timeFilter, error) {
 	filterType := exactly
-	sign := 1
 	if mmin[0] == '-' {
 		filterType = lessThan
 		mmin = mmin[1:]
-		sign = -1
 	} else if mmin[0] == '+' {
 		filterType = moreThan
 		mmin = mmin[1:]
@@ -98,13 +103,10 @@ func parseMmin(mmin string, now time.Time) (*timeFilter, error) {
 		return nil, err
 	}
 
-	diff := sign * i * int(time.Minute)
+	diff := -i * int(time.Minute)
 	threshold := now.Add(time.Duration(diff))
 
-	return &timeFilter{
-		threshold:  threshold,
-		filterType: filterType,
-	}, nil
+	return newTimeFilter(threshold, filterType), nil
 
 }
 
