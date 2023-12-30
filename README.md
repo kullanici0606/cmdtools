@@ -10,6 +10,7 @@ Available Commands:
   find        Unix find command
   help        Help about any command
   webserver   Simple HTTP server for filesystem
+  xargs       Execute command lines from stdin
 
 Flags:
   -h, --help     help for cmdtools
