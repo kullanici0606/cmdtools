@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -16,6 +17,8 @@ import (
 
 var name string
 var mmin string
+var printLs bool
+var printZero bool
 
 // findCmd represents the find command
 var findCmd = &cobra.Command{
@@ -30,6 +33,8 @@ func init() {
 	rootCmd.AddCommand(findCmd)
 	findCmd.Flags().StringVar(&name, "name", "", "name pattern")
 	findCmd.Flags().StringVar(&mmin, "mmin", "", "file modification diff minutes")
+	findCmd.Flags().BoolVar(&printLs, "ls", false, "list file details")
+	findCmd.Flags().BoolVarP(&printZero, "print0", "0", false, "print file names null delimited")
 }
 
 type fileFilter interface {
@@ -131,10 +136,40 @@ func executeFind(args []string) {
 		filters = append(filters, mminFilter)
 	}
 
-	findAll(path, filters)
+	onfind := printLn
+	if printZero {
+		onfind = print0
+	} else if printLs {
+		onfind = printFileDetails
+	}
+
+	findAll(path, filters, onfind)
 }
 
-func findAll(path string, filters []fileFilter) {
+func printLn(file string) {
+	fmt.Println(file)
+}
+
+func print0(file string) {
+	fmt.Printf("%s\u0000", file)
+}
+
+func printFileDetails(file string) {
+	info, err := os.Stat(file)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "file stat error %s %s", file, err)
+		return
+	}
+
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if ok {
+		// unix/linux, add inode info
+		fmt.Printf("%d\t", stat.Ino)
+	}
+	fmt.Printf("%s\t%d\t%s\t%s\n", info.Mode().Perm(), info.Size(), info.ModTime().Format("Jan 02 2006 15:04:05"), file)
+}
+
+func findAll(path string, filters []fileFilter, onfind func(string)) {
 	filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error while traversing %s %s\n", path, err)
@@ -147,7 +182,7 @@ func findAll(path string, filters []fileFilter) {
 		}
 
 		if matched {
-			fmt.Println(path)
+			onfind(path)
 		}
 
 		return nil
