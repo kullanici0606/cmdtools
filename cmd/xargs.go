@@ -137,17 +137,8 @@ func process(args []string, flags *xargsFlags) {
 		}()
 	}
 
-	replaceIndex := -1
-	if len(flags.replacement) != 0 {
-		for i, a := range args {
-			if a == flags.replacement {
-				replaceIndex = i
-			}
-		}
-	}
-
 	if flags.maxArgs == 1 {
-		go passBySingle(scanner, args, argch, replaceIndex)
+		go passBySingle(scanner, args, argch, flags.replacement)
 	} else {
 		go passByMultiple(scanner, args, argch, flags.maxArgs)
 	}
@@ -166,21 +157,34 @@ func process(args []string, flags *xargsFlags) {
 	}
 }
 
-func passBySingle(scanner *bufio.Scanner, args []string, argch chan<- []string, replaceIndex int) {
+// Pass argument read from stdin as a single argument to program by sending to argument channel (argch)
+// i.e let cmd to command to be run, then argument channel will be arranged so that command is run like cmd <stdin_arg_1>, cmd <stdin_arg_2>
+// args contains command and its command line flags/arguments
+func passBySingle(scanner *bufio.Scanner, args []string, argch chan<- []string, replacement string) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		c := make([]string, len(args))
 		copy(c, args)
-		if replaceIndex != -1 {
-			c[replaceIndex] = line
-		} else {
+		if len(replacement) == 0 {
 			c = append(c, line)
+			argch <- c
+			continue
+		}
+
+		// use replacement
+		for i := 0; i < len(args); i++ {
+			if strings.Contains(c[i], replacement) {
+				c[i] = strings.ReplaceAll(c[i], replacement, line)
+			}
 		}
 		argch <- c
 	}
 	close(argch)
 }
 
+// Pass argument read from stdin as multiple arguments (maxArgs) to program by sending to argument channel (argch)
+// i.e let cmd to command to be run, then argument channel will be arranged so that command is run like cmd <stdin_arg_1> <stdin_arg_2> ... <stdin_arg_maxArgs>
+// args contains command and its command line flags/arguments
 func passByMultiple(scanner *bufio.Scanner, args []string, argch chan<- []string, maxArgs int) {
 	passArgs := make([]string, 0, maxArgs)
 	for scanner.Scan() {
@@ -188,7 +192,7 @@ func passByMultiple(scanner *bufio.Scanner, args []string, argch chan<- []string
 		passArgs = append(passArgs, line)
 
 		if len(passArgs) == maxArgs {
-			c := make([]string, len(args)+maxArgs)
+			c := make([]string, len(args), len(args)+maxArgs)
 			copy(c, args)
 			c = append(c, passArgs...)
 			argch <- c
@@ -197,7 +201,7 @@ func passByMultiple(scanner *bufio.Scanner, args []string, argch chan<- []string
 	}
 
 	if len(passArgs) != 0 {
-		c := make([]string, len(args)+maxArgs)
+		c := make([]string, len(args), len(args)+len(passArgs))
 		copy(c, args)
 		c = append(c, passArgs...)
 		argch <- c
