@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -119,6 +121,103 @@ func ExecuteXargs() {
 	process(rest, flags)
 }
 
+type cmdRunner interface {
+	runAsync(argch <-chan []string)
+	waitAsync()
+}
+
+type regularRunner struct {
+	wg    sync.WaitGroup
+	outch chan<- string
+	errch chan<- string
+}
+
+func (r *regularRunner) runAsync(argch <-chan []string) {
+	r.wg.Add(1)
+	go func() {
+		err := r.runProgram(argch)
+		if err != nil {
+			fmt.Printf("error: %s", err)
+		}
+		r.wg.Done()
+	}()
+}
+
+func (r *regularRunner) waitAsync() {
+	r.wg.Wait()
+	close(r.outch)
+}
+
+func (r *regularRunner) runProgram(argch <-chan []string) error {
+	for {
+		commandAndArgs, open := <-argch
+		if !open {
+			return nil
+		}
+
+		stdout, stderr := runProgram(commandAndArgs)
+		if len(stderr) != 0 {
+			r.errch <- stderr
+			continue
+		}
+
+		r.outch <- stdout
+	}
+}
+
+type runnerOnExit struct {
+	errg  *errgroup.Group
+	errch chan string
+	outch chan<- string
+}
+
+func (r *runnerOnExit) runAsync(argch <-chan []string) {
+	r.errg.Go(func() error {
+		return r.runProgram(argch)
+	})
+}
+
+func (r *runnerOnExit) waitAsync() {
+	if err := r.errg.Wait(); err != nil {
+		r.errch <- fmt.Sprint(err)
+	}
+
+	close(r.errch)
+	close(r.outch)
+}
+
+func (r *runnerOnExit) runProgram(argch <-chan []string) error {
+	for {
+		commandAndArgs, open := <-argch
+		if !open {
+			return nil
+		}
+
+		stdout, stderr := runProgram(commandAndArgs)
+		if len(stderr) != 0 {
+			r.errch <- stderr
+			return fmt.Errorf("error: %s", stderr)
+		}
+
+		r.outch <- stdout
+	}
+}
+
+func runProgram(commandAndArgs []string) (stdout string, stderr string) {
+	command := exec.Command(commandAndArgs[0], commandAndArgs[1:]...)
+	command.Stdin, _ = os.Open(os.DevNull)
+	var out strings.Builder
+	command.Stdout = &out
+	var errout strings.Builder
+	command.Stderr = &errout
+	err := command.Run()
+	if err != nil {
+		return "", errout.String()
+	}
+
+	return out.String(), ""
+}
+
 func process(args []string, flags *xargsFlags) {
 	scanner := bufio.NewScanner(os.Stdin)
 	if flags.delimiter == zeroDelimiter {
@@ -126,15 +225,22 @@ func process(args []string, flags *xargsFlags) {
 	}
 	argch := make(chan []string, flags.maxProcs)
 	outch := make(chan string, flags.maxProcs)
+	errch := make(chan string, flags.maxProcs)
 
-	// TODO implement --exit-on-error
-	var wg sync.WaitGroup
+	var runner cmdRunner
+
+	if flags.exitOnError {
+		runner = &runnerOnExit{
+			errg: new(errgroup.Group), outch: outch, errch: errch,
+		}
+	} else {
+		runner = &regularRunner{
+			outch: outch, wg: sync.WaitGroup{}, errch: errch,
+		}
+	}
+
 	for i := 0; i < flags.maxProcs; i++ {
-		wg.Add(1)
-		go func() {
-			runProgram(argch, outch)
-			wg.Done()
-		}()
+		runner.runAsync(argch)
 	}
 
 	replaceIndex := -1
@@ -146,53 +252,75 @@ func process(args []string, flags *xargsFlags) {
 		}
 	}
 
+	exitch := make(chan struct{})
+
 	if flags.maxArgs == 1 {
-		go passBySingle(scanner, args, argch, replaceIndex)
+		go passBySingle(scanner, args, argch, exitch, replaceIndex)
 	} else {
-		go passByMultiple(scanner, args, argch, flags.maxArgs)
+		go passByMultiple(scanner, args, argch, exitch, flags.maxArgs)
 	}
 
-	go func() {
-		wg.Wait()
-		close(outch)
-	}()
+	go runner.waitAsync()
 
-	for out := range outch {
-		if strings.HasSuffix(out, "\n") {
-			fmt.Print(out)
-		} else {
-			fmt.Println(out)
+loop:
+	for {
+		select {
+		case err, open := <-errch:
+			if !open {
+				close(exitch)
+				break loop
+			}
+
+			fmt.Fprintf(os.Stderr, "%s\n", strings.TrimSuffix(err, "\n"))
+
+		case out, open := <-outch:
+			if !open {
+				close(exitch)
+				break loop
+			}
+			fmt.Printf("%s\n", strings.TrimSuffix(out, "\n"))
 		}
 	}
+
 }
 
-func passBySingle(scanner *bufio.Scanner, args []string, argch chan<- []string, replaceIndex int) {
+func passBySingle(scanner *bufio.Scanner, args []string, argch chan<- []string, exitch <-chan struct{}, replaceIndex int) {
 	for scanner.Scan() {
-		line := scanner.Text()
-		c := make([]string, len(args))
-		copy(c, args)
-		if replaceIndex != -1 {
-			c[replaceIndex] = line
-		} else {
-			c = append(c, line)
+		select {
+		case <-exitch:
+			return
+		default:
+			line := scanner.Text()
+			c := make([]string, len(args))
+			copy(c, args)
+			if replaceIndex != -1 {
+				c[replaceIndex] = line
+			} else {
+				c = append(c, line)
+			}
+			argch <- c
 		}
-		argch <- c
 	}
 	close(argch)
 }
 
-func passByMultiple(scanner *bufio.Scanner, args []string, argch chan<- []string, maxArgs int) {
+func passByMultiple(scanner *bufio.Scanner, args []string, argch chan<- []string, exitch <-chan struct{}, maxArgs int) {
 	passArgs := make([]string, 0, maxArgs)
 	for scanner.Scan() {
-		line := scanner.Text()
-		passArgs = append(passArgs, line)
+		select {
+		case <-exitch:
+			return
+		default:
+			line := scanner.Text()
+			passArgs = append(passArgs, line)
 
-		if len(passArgs) == maxArgs {
-			c := make([]string, len(args)+maxArgs)
-			copy(c, args)
-			c = append(c, passArgs...)
-			argch <- c
-			passArgs = passArgs[:0]
+			if len(passArgs) == maxArgs {
+				c := make([]string, len(args)+maxArgs)
+				copy(c, args)
+				c = append(c, passArgs...)
+				argch <- c
+				passArgs = passArgs[:0]
+			}
 		}
 	}
 
@@ -219,24 +347,4 @@ func splitByZero(data []byte, atEOF bool) (advance int, token []byte, err error)
 	}
 	// Request more data.
 	return 0, nil, nil
-}
-
-func runProgram(argch <-chan []string, outch chan<- string) error {
-	for {
-		commandAndArgs, open := <-argch
-		if !open {
-			return nil
-		}
-
-		command := exec.Command(commandAndArgs[0], commandAndArgs[1:]...)
-		command.Stdin, _ = os.Open(os.DevNull)
-		var out strings.Builder
-		command.Stdout = &out
-		err := command.Run()
-		if err != nil {
-			return err
-		}
-
-		outch <- out.String()
-	}
 }
