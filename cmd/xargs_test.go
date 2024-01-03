@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"bufio"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -63,6 +65,104 @@ func TestXargsFlagsParseInvalid(t *testing.T) {
 				t.Errorf("got %v want %v", err, c.want)
 			}
 
+		})
+	}
+}
+
+func TestPassBySingle(t *testing.T) {
+	cases := []struct {
+		name             string
+		inputArgs        []string
+		inputStdin       string
+		inputReplacement string
+		want             [][]string
+	}{
+		{
+			"no replacement exists",
+			[]string{"grep", "foo"},
+			"file1.txt\nfile2.txt",
+			"",
+			[][]string{{"grep", "foo", "file1.txt"}, {"grep", "foo", "file2.txt"}},
+		},
+		{
+			"one replacement exists",
+			[]string{"mv", "{}", "/tmp/"},
+			"file1.txt\nfile2.txt",
+			"{}",
+			[][]string{{"mv", "file1.txt", "/tmp/"}, {"mv", "file2.txt", "/tmp/"}},
+		},
+		{
+			"multiple replacement exists",
+			[]string{"mv", "{}", "{}.bck"},
+			"file1.txt\nfile2.txt",
+			"{}",
+			[][]string{{"mv", "file1.txt", "file1.txt.bck"}, {"mv", "file2.txt", "file2.txt.bck"}},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			scanner := bufio.NewScanner(strings.NewReader(c.inputStdin))
+			ch := make(chan []string, len(c.want))
+			passBySingle(scanner, c.inputArgs, ch, nil, c.inputReplacement)
+
+			got := make([][]string, 0, len(c.want))
+			for v := range ch {
+				got = append(got, v)
+			}
+
+			if !reflect.DeepEqual(got, c.want) {
+				t.Errorf("got %v want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestPassByMultiple(t *testing.T) {
+	cases := []struct {
+		name         string
+		inputArgs    []string
+		inputStdin   string
+		inputMaxArgs int
+		want         [][]string
+	}{
+		{
+			"less than maxArgs exists",
+			[]string{"grep", "foo"},
+			"file1.txt",
+			2,
+			[][]string{{"grep", "foo", "file1.txt"}},
+		},
+		{
+			"multiple of maxArgs",
+			[]string{"grep", "foo"},
+			"file1.txt\nfile2.txt\nfile3.txt\nfile4.txt",
+			2,
+			[][]string{{"grep", "foo", "file1.txt", "file2.txt"}, {"grep", "foo", "file3.txt", "file4.txt"}},
+		},
+		{
+			"non-multiple of maxArgs",
+			[]string{"grep", "foo"},
+			"file1.txt\nfile2.txt\nfile3.txt",
+			2,
+			[][]string{{"grep", "foo", "file1.txt", "file2.txt"}, {"grep", "foo", "file3.txt"}},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			scanner := bufio.NewScanner(strings.NewReader(c.inputStdin))
+			ch := make(chan []string, len(c.want))
+			passByMultiple(scanner, c.inputArgs, ch, nil, c.inputMaxArgs)
+
+			got := make([][]string, 0, len(c.want))
+			for v := range ch {
+				got = append(got, v)
+			}
+
+			if !reflect.DeepEqual(got, c.want) {
+				t.Errorf("got %v want %v", got, c.want)
+			}
 		})
 	}
 }

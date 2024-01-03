@@ -10,6 +10,7 @@ Available Commands:
   find        Unix find command
   help        Help about any command
   webserver   Simple HTTP server for filesystem
+  uniq        Filter adjacent matching lines from INPUT (or standard input)
   xargs       Execute command lines from stdin
 
 Flags:
