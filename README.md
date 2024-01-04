@@ -1,4 +1,4 @@
-Toy Project
+Some Unix tool reimplementations in Go
 
 ```
 Usage:
