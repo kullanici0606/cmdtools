@@ -26,7 +26,7 @@ var duCmd = &cobra.Command{
 var humanReadable bool
 
 func init() {
-	rootCmd.AddCommand(duCmd)
+	RootCmd.AddCommand(duCmd)
 	duCmd.Flags().BoolVarP(&humanReadable, "human-readable", "H", false, "print sizes in human readable format (e.g., 1K 234M 2G)")
 }
 

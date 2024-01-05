@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"com.github/kullanici0606/cmdtools/v2/cmd"
+	_ "com.github/kullanici0606/cmdtools/v2/cmd/s3"
 )
 
 func main() {

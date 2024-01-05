@@ -1,4 +1,4 @@
-Some Unix tool reimplementations in Go
+Some Unix tools reimplementations in Go
 
 ```
 Usage:

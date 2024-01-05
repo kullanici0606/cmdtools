@@ -30,7 +30,7 @@ type flags struct {
 var globalFlags flags
 
 func init() {
-	rootCmd.AddCommand(uniqCmd)
+	RootCmd.AddCommand(uniqCmd)
 	uniqCmd.Flags().BoolVarP(&globalFlags.count, "count", "c", false, "prefix lines by the number of occurrences")
 	uniqCmd.Flags().BoolVarP(&globalFlags.duplicate, "repeated", "d", false, "only print duplicate lines, one for each group")
 	uniqCmd.Flags().BoolVarP(&globalFlags.onlyUnique, "unique", "u", false, "only print unique lines")
