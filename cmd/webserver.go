@@ -33,7 +33,7 @@ var directory string
 var logfile string
 
 func init() {
-	RootCmd.AddCommand(webserverCmd)
+	rootCmd.AddCommand(webserverCmd)
 	webserverCmd.Flags().StringVarP(&bind, "bind", "b", "", "Specify alternate bind address [default: all interfaces]")
 	webserverCmd.Flags().StringVarP(&directory, "directory", "d", ".", "Specify alternative directory [default:current directory]")
 	webserverCmd.Flags().StringVarP(&logfile, "logfile", "l", "", "Specify a log file, otherwise logs are suprassed")

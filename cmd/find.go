@@ -30,7 +30,7 @@ var findCmd = &cobra.Command{
 }
 
 func init() {
-	RootCmd.AddCommand(findCmd)
+	rootCmd.AddCommand(findCmd)
 	findCmd.Flags().StringVar(&name, "name", "", "name pattern")
 	findCmd.Flags().StringVar(&mmin, "mmin", "", "file modification diff minutes")
 	findCmd.Flags().BoolVar(&printLs, "ls", false, "list file details")
