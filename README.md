@@ -9,6 +9,7 @@ Available Commands:
   du          Disk usage
   find        Unix find command
   help        Help about any command
+  ps          Subset of ps command
   webserver   Simple HTTP server for filesystem
   uniq        Filter adjacent matching lines from INPUT (or standard input)
   xargs       Execute command lines from stdin

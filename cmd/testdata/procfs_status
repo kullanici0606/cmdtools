@@ -1,0 +1,54 @@
+Name:	gsd-media-keys
+Umask:	0077
+State:	S (sleeping)
+Tgid:	2553
+Ngid:	0
+Pid:	2553
+PPid:	1674
+TracerPid:	0
+Uid:	42	42	42	42
+Gid:	45	45	45	45
+FDSize:	64
+Groups:	45 
+NStgid:	2553
+NSpid:	2553
+NSpgid:	1513
+NSsid:	1513
+VmPeak:	 1106840 kB
+VmSize:	 1098588 kB
+VmLck:	       0 kB
+VmPin:	       0 kB
+VmHWM:	   26936 kB
+VmRSS:	   26916 kB
+RssAnon:	    7396 kB
+RssFile:	   19492 kB
+RssShmem:	      28 kB
+VmData:	   62984 kB
+VmStk:	     132 kB
+VmExe:	     212 kB
+VmLib:	   33048 kB
+VmPTE:	     588 kB
+VmSwap:	       0 kB
+HugetlbPages:	       0 kB
+CoreDumping:	0
+Threads:	4
+SigQ:	0/23069
+SigPnd:	0000000000000000
+ShdPnd:	0000000000000000
+SigBlk:	0000000000000000
+SigIgn:	0000000000001000
+SigCgt:	0000000180000000
+CapInh:	0000000000000000
+CapPrm:	0000000000000000
+CapEff:	0000000000000000
+CapBnd:	0000003fffffffff
+CapAmb:	0000000000000000
+NoNewPrivs:	0
+Seccomp:	0
+Speculation_Store_Bypass:	vulnerable
+Cpus_allowed:	f
+Cpus_allowed_list:	0-3
+Mems_allowed:	00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000001
+Mems_allowed_list:	0
+voluntary_ctxt_switches:	217
+nonvoluntary_ctxt_switches:	14
