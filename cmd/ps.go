@@ -85,12 +85,19 @@ func execPs(args []string) {
 		}
 	}
 
-	sort.Slice(pids, pids.compare)
-	fmt.Printf("%-8s %s\t%s\t%-17s\t%-8s\t%s\n", "UID", "PID", "PPID", "STIME", "TIME", "NAME")
+	maxPidLen, err := getMaxPidLength()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot read max pid length %s\n", err)
+		return
+	}
 
+	formatStr := fmt.Sprintf("%%-8s %%-%ds %%-%ds %%-17s\t%%-8s %%s\n", maxPidLen, maxPidLen)
+	fmt.Printf(formatStr, "UID", "PID", "PPID", "STIME", "TIME", "NAME")
+
+	sort.Slice(pids, pids.compare)
 	for _, entry := range pids {
-		err := psProcess(entry.Name(), usernames, globalFullCommandLine)
-		if errors.Is(err, os.ErrPermission) {
+		err := psProcess(entry.Name(), usernames, globalFullCommandLine, formatStr)
+		if errors.Is(err, os.ErrPermission) || errors.Is(err, os.ErrNotExist) {
 			continue
 		}
 
@@ -98,6 +105,21 @@ func execPs(args []string) {
 			fmt.Fprintf(os.Stderr, "Cannot read details of %s %s\n", entry.Name(), err)
 		}
 	}
+}
+
+func getMaxPidLength() (int, error) {
+	f, err := os.Open("/proc/sys/kernel/pid_max")
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return 0, err
+	}
+
+	return len(b), nil
 }
 
 func readUserNames() (map[string]string, error) {
@@ -135,7 +157,7 @@ func truncateUsername(username string) string {
 	return username
 }
 
-func psProcess(pid string, usernames map[string]string, fullCommandLine bool) error {
+func psProcess(pid string, usernames map[string]string, fullCommandLine bool, formatStr string) error {
 	status, err := readProcStatus(pid)
 	if err != nil {
 		return err
@@ -164,15 +186,18 @@ func psProcess(pid string, usernames map[string]string, fullCommandLine bool) er
 		if err != nil {
 			return err
 		}
+		if len(name) == 0 {
+			name = "[" + status.name + "]"
+		}
 	}
 
-	fmt.Printf("%-8s %s\t%s\t%s\t%s\t%s\n", usernames[status.uid], status.pid, status.parentPid, formattedTime, formatCpuTime(cputime), name)
+	fmt.Printf(formatStr, usernames[status.uid], status.pid, status.parentPid, formattedTime, formatCpuTime(cputime), name)
 
 	return nil
 }
 
 func readCommandLine(pid string) (string, error) {
-	path := filepath.Join(procfsRoot, "cmdline")
+	path := filepath.Join(procfsRoot, pid, "cmdline")
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
