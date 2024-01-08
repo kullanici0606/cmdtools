@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -29,9 +30,12 @@ var psCmd = &cobra.Command{
 	},
 }
 
+var globalFullCommandLine bool
+
 func init() {
 	rootCmd.AddCommand(psCmd)
 	// psCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	psCmd.Flags().BoolVarP(&globalFullCommandLine, "full", "f", false, "Print full command line instead of just process name")
 }
 
 const procfsRoot = "/proc/"
@@ -85,7 +89,7 @@ func execPs(args []string) {
 	fmt.Printf("%-8s %s\t%s\t%-17s\t%-8s\t%s\n", "UID", "PID", "PPID", "STIME", "TIME", "NAME")
 
 	for _, entry := range pids {
-		err := psProcess(entry.Name(), usernames)
+		err := psProcess(entry.Name(), usernames, globalFullCommandLine)
 		if errors.Is(err, os.ErrPermission) {
 			continue
 		}
@@ -116,19 +120,22 @@ func parsePasswdFile(f io.Reader) map[string]string {
 			continue
 		}
 		cols := strings.Split(line, ":")
-		if len(cols[0]) > 8 {
-			// truncate long user name as ps does
-			usernames[cols[2]] = cols[0][:7] + "+"
-		} else {
-			usernames[cols[2]] = cols[0]
-		}
-
+		usernames[cols[2]] = truncateUsername(cols[0])
 	}
 
 	return usernames
 }
 
-func psProcess(pid string, usernames map[string]string) error {
+func truncateUsername(username string) string {
+	if len(username) > 8 {
+		// truncate long user name as ps does
+		return username[:7] + "+"
+	}
+
+	return username
+}
+
+func psProcess(pid string, usernames map[string]string, fullCommandLine bool) error {
 	status, err := readProcStatus(pid)
 	if err != nil {
 		return err
@@ -151,10 +158,48 @@ func psProcess(pid string, usernames map[string]string) error {
 
 	startTime := bootTime.Add(time.Duration(starttime) * time.Second)
 	formattedTime := startTime.Format("2006-01-02 15:04:05")
+	name := status.name
+	if fullCommandLine {
+		name, err = readCommandLine(pid)
+		if err != nil {
+			return err
+		}
+	}
 
-	fmt.Printf("%-8s %s\t%s\t%s\t%s\t%s\n", usernames[status.uid], status.pid, status.parentPid, formattedTime, formatCpuTime(cputime), status.name)
+	fmt.Printf("%-8s %s\t%s\t%s\t%s\t%s\n", usernames[status.uid], status.pid, status.parentPid, formattedTime, formatCpuTime(cputime), name)
 
 	return nil
+}
+
+func readCommandLine(pid string) (string, error) {
+	path := filepath.Join(procfsRoot, "cmdline")
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+
+	cmdline, err := parseCommandLine(f)
+	if err != nil {
+		return "", err
+	}
+
+	return cmdline, nil
+}
+
+func parseCommandLine(r io.Reader) (string, error) {
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return "", err
+	}
+
+	for i := 0; i < len(b); i++ {
+		if b[i] == '\u0000' {
+			b[i] = ' '
+		}
+	}
+
+	b = bytes.TrimSpace(b)
+	return string(b), nil
 }
 
 func readBootTime() (time.Time, error) {
@@ -258,12 +303,26 @@ func parseProcStat(f io.Reader, clktck int64) (cputime int64, startTime int64, e
 		return 0, 0, err
 	}
 
-	content := string(b)
+	// (2) comm  %s The filename of the executable, in parentheses.
+	// since process names can contains spaces, it is better to skip it and operate on rest of the string
+	idx := bytes.IndexByte(b, ')')
+	if idx == -1 {
+		return 0, 0, errors.New("invalid stat file, process name is not in parenthesis")
+	}
+
+	const (
+		// indexes relative to process name, process name index is 1 (2 in 1-based)
+		utimeIdx     = 11 // (14) utime
+		stimeIdx     = 12 // (15) stime
+		starttimeIdx = 19 // (22) starttime
+	)
+
+	content := string(b[idx+2:]) // skip ')' and space
 	cols := strings.Split(content, " ")
-	// 14) utime  %lu Amount of time that this process has been scheduled
+	// (14) utime  %lu Amount of time that this process has been scheduled
 	// 			      in user mode, measured in clock ticks (divide by
 	//                sysconf(_SC_CLK_TCK)).
-	utime, err := strconv.ParseInt(cols[13], 10, 64)
+	utime, err := strconv.ParseInt(cols[utimeIdx], 10, 64)
 	if err != nil {
 		return 0, 0, fmt.Errorf("utime %w", err)
 	}
@@ -272,7 +331,7 @@ func parseProcStat(f io.Reader, clktck int64) (cputime int64, startTime int64, e
 	// 				   in kernel mode, measured in clock ticks (divide by
 	// 				   sysconf(_SC_CLK_TCK)).
 
-	stime, err := strconv.ParseInt(cols[14], 10, 64)
+	stime, err := strconv.ParseInt(cols[stimeIdx], 10, 64)
 	if err != nil {
 		return 0, 0, fmt.Errorf("stime %w", err)
 	}
@@ -283,7 +342,7 @@ func parseProcStat(f io.Reader, clktck int64) (cputime int64, startTime int64, e
 	//                 		Before Linux 2.6, this value was expressed in
 	//                 		jiffies.  Since Linux 2.6, the value is expressed
 	//                 		in clock ticks (divide by sysconf(_SC_CLK_TCK)).
-	startTime, err = strconv.ParseInt(cols[21], 10, 64)
+	startTime, err = strconv.ParseInt(cols[starttimeIdx], 10, 64)
 	if err != nil {
 		return 0, 0, fmt.Errorf("starttime %w", err)
 	}
