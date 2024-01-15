@@ -1,4 +1,4 @@
-module com.github/kullanici0606/cmdtools/v2
+module github.com/kullanici0606/cmdtools/v2
 
 go 1.21.5
 

@@ -6,7 +6,7 @@ package main
 import (
 	"os"
 
-	"com.github/kullanici0606/cmdtools/v2/cmd"
+	"github.com/kullanici0606/cmdtools/v2/cmd"
 )
 
 func main() {
